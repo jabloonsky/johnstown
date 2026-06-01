@@ -55,6 +55,7 @@ jobs:
           ls -la output/
 
       - name: Deploy to OVH via FTP
+        if: success() # Only run if the pipeline succeeded
         env:
           OVH_FTP_HOST: ${{ secrets.OVH_FTP_HOST }}
           OVH_FTP_USER: ${{ secrets.OVH_FTP_USER }}
@@ -63,7 +64,7 @@ jobs:
         run: python src/deploy_ftp.py
 
       - name: Upload artifact (backup)
-        if: always()
+        if: always() # Uploads regardless of whether the pipeline failed or succeeded
         uses: actions/upload-artifact@v4
         with:
           name: report-${{ github.run_id }}
