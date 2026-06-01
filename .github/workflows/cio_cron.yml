@@ -49,6 +49,7 @@ jobs:
           FINNHUB_TOKEN:   ${{ secrets.FINNHUB_TOKEN }}
           GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python src/main.py
           ls -la output/
