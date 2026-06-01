@@ -1,0 +1,70 @@
+name: CIO Daily Report
+
+on:
+  schedule:
+    - cron: "0 4 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify secrets are set
+        run: |
+          [ -z "$FRED_API_KEY" ]   && echo "ERROR: FRED_API_KEY missing"   || echo "FRED_API_KEY: OK"
+          [ -z "$FMP_API_KEY" ]    && echo "ERROR: FMP_API_KEY missing"    || echo "FMP_API_KEY: OK"
+          [ -z "$GEMINI_API_KEY" ] && echo "ERROR: GEMINI_API_KEY missing" || echo "GEMINI_API_KEY: OK"
+          [ -z "$DISCORD_WEBHOOK" ] && echo "WARNING: DISCORD_WEBHOOK not set" || echo "DISCORD_WEBHOOK: OK"
+        env:
+          FRED_API_KEY:    ${{ secrets.FRED_API_KEY }}
+          FMP_API_KEY:     ${{ secrets.FMP_API_KEY }}
+          GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+
+      - name: Run CIO pipeline
+        env:
+          FRED_API_KEY:    ${{ secrets.FRED_API_KEY }}
+          FMP_API_KEY:     ${{ secrets.FMP_API_KEY }}
+          FINNHUB_TOKEN:   ${{ secrets.FINNHUB_TOKEN }}
+          GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          python src/main.py
+          ls -la output/
+
+      - name: Deploy to OVH via FTP
+        env:
+          OVH_FTP_HOST: ${{ secrets.OVH_FTP_HOST }}
+          OVH_FTP_USER: ${{ secrets.OVH_FTP_USER }}
+          OVH_FTP_PASS: ${{ secrets.OVH_FTP_PASS }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python src/deploy_ftp.py
+
+      - name: Upload artifact (backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ github.run_id }}
+          path: output/
+          retention-days: 90
