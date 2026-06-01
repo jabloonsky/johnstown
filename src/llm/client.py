@@ -1,18 +1,21 @@
 """
-Sends the DailyDataFeed JSON to OpenAI and returns a structured CIO report.
-Uses response_format=json_object to prevent free-text hallucination.
+Sends the DailyDataFeed JSON to Google Gemini and returns a structured CIO report.
+Uses response_mime_type=application/json to enforce structured output.
 """
 import os
 import json
-from openai import AsyncOpenAI
+import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 SYSTEM_PROMPT = """You are an automated Chief Investment Officer (CIO) for a private investment account.
 
 YOUR RULES — NON-NEGOTIABLE:
-1. You ONLY use data from the JSON provided. You NEVER use valuations, prices, or facts from your training data.
+1. You ONLY use data from the JSON provided. NEVER use valuations or prices from your training data.
 2. If a field is null or missing, say so — do not invent a number.
-3. You diagnose macro regime FIRST (top-down), then assess individual equities.
-4. You identify 1-3 assets with POSITIVE RISK/REWARD ASYMMETRY per time horizon.
+3. Diagnose macro regime FIRST (top-down), then assess individual equities.
+4. Identify 1-3 assets with POSITIVE RISK/REWARD ASYMMETRY per time horizon.
 5. Conviction must be backed by at least 2 quantitative signals from the data.
 
 OUTPUT FORMAT — return valid JSON only, no markdown, no preamble:
@@ -31,57 +34,62 @@ OUTPUT FORMAT — return valid JSON only, no markdown, no preamble:
       }
     ]
   },
-  "medium_term": {
-    "horizon": "1-6 months",
-    "candidates": []
-  },
-  "long_term": {
-    "horizon": "6-24 months",
-    "candidates": []
-  },
+  "medium_term": { "horizon": "1-6 months", "candidates": [] },
+  "long_term":   { "horizon": "6-24 months", "candidates": [] },
   "assets_to_avoid": ["TICKER - reason"],
   "overall_conviction_score": 0,
   "one_line_summary": "Maximum 280 characters. Plain language."
 }
 
 conviction score: 0-100. Be conservative. 70+ only when multiple strong signals align.
-If market conditions suggest holding cash, say so explicitly with reasoning.
-"""
+If conditions suggest holding cash, say so explicitly."""
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 async def generate_report(feed: dict) -> dict:
-    client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    api_key = os.environ["GEMINI_API_KEY"]
 
-    # Remove raw OHLCV arrays before sending — they are large and the LLM
-    # doesn't need them (signals are already computed)
+    # Strip raw OHLCV arrays — LLM doesn't need them, signals already computed
     feed_for_llm = json.loads(json.dumps(feed))
     for eq in feed_for_llm.get("equities", []):
         eq.pop("closes", None)
         eq.pop("highs", None)
         eq.pop("lows", None)
 
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",          # ~$0.001 per report; upgrade to gpt-4o when ready
-        response_format={"type": "json_object"},
-        temperature=0.2,              # low temperature = less creative, more factual
-        max_tokens=2000,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": json.dumps(feed_for_llm, ensure_ascii=False)},
-        ],
-    )
+    prompt = f"{SYSTEM_PROMPT}\n\nDATA:\n{json.dumps(feed_for_llm, ensure_ascii=False)}"
 
-    raw = response.choices[0].message.content
-    report = json.loads(raw)
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature":      0.2,
+            "maxOutputTokens":  2000,
+            "responseMimeType": "application/json",   # Forces JSON output
+        },
+    }
 
-    # Attach token usage for cost tracking
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(
+            GEMINI_URL,
+            params={"key": api_key},
+            json=payload,
+        )
+        r.raise_for_status()
+        data = r.json()
+
+    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+    report   = json.loads(raw_text)
+
+    # Attach usage metadata for cost tracking
+    usage = data.get("usageMetadata", {})
     report["_meta"] = {
-        "model":       response.model,
-        "tokens_in":   response.usage.prompt_tokens,
-        "tokens_out":  response.usage.completion_tokens,
-        "cost_usd_est": round(
-            response.usage.prompt_tokens * 0.00000015 +
-            response.usage.completion_tokens * 0.0000006, 5
+        "model":         "gemini-2.0-flash",
+        "tokens_in":     usage.get("promptTokenCount", 0),
+        "tokens_out":    usage.get("candidatesTokenCount", 0),
+        # Gemini 2.0 Flash pricing: input $0.075/1M, output $0.30/1M tokens
+        "cost_usd_est":  round(
+            usage.get("promptTokenCount", 0)     * 0.000000075 +
+            usage.get("candidatesTokenCount", 0) * 0.0000003,
+            6
         ),
     }
     return report
