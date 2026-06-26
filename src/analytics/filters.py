@@ -111,8 +111,9 @@ def rsi_signal(closes, benchmark_closes=None):
 
 
 def risk_reward(closes, highs, lows):
-    if len(closes) < 60:
-        return {"risk_reward": None, "asymmetry_pass": False}
+    if len(closes) < 60 or len(highs) < 60 or len(lows) < 60:
+        return {"support": None, "resistance": None, "upside_pct": None,
+                "downside_pct": None, "risk_reward": None, "asymmetry_pass": False}
     px         = closes[-1]
     support    = min(lows[-60:])
     resistance = max(highs[-60:])

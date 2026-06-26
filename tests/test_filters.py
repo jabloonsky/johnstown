@@ -39,7 +39,10 @@ def test_sortino_returns_none_if_too_few_bars():
 
 
 def test_sortino_positive_for_rising_prices():
-    closes = trending_up(252)
+    # Noisy uptrend — some returns dip below MAR, net positive → positive Sortino
+    rng = np.random.default_rng(42)
+    noise = rng.normal(0, 0.005, 252)
+    closes = list(np.cumsum(noise + 0.001) + 100)
     result = sortino_ratio(closes)
     assert result is not None
     assert result > 0
@@ -52,9 +55,17 @@ def test_sortino_negative_for_falling_prices():
     assert result < 0
 
 
-def test_sortino_none_when_no_downside_risk():
-    # Perfectly flat price — no downside deviation → None (division by zero guard)
+def test_sortino_negative_for_flat_prices():
+    # Flat price: daily returns are 0, all below MAR → downside exists → negative Sortino
     result = sortino_ratio(flat(252))
+    assert result is not None
+    assert result < 0
+
+
+def test_sortino_none_when_all_returns_beat_mar():
+    # Every daily return far exceeds MAR → no downside deviation → None
+    closes = trending_up(252, step=5.0)  # ~5%/day >> MAR of ~0.018%/day
+    result = sortino_ratio(closes)
     assert result is None
 
 
@@ -74,10 +85,12 @@ def test_bollinger_squeeze_not_active_for_volatile_prices():
 
 
 def test_bollinger_squeeze_active_for_tight_range():
-    # Very tight price range → BB width collapses → squeeze
-    base = [100.0] * 200
-    tiny_moves = [100.0 + (i % 2) * 0.01 for i in range(200)]
-    result = bollinger_squeeze(tiny_moves)
+    # High volatility followed by tight range → current BB width < 75% of historical avg
+    rng = np.random.default_rng(42)
+    volatile = list(100 + rng.normal(0, 3, 100).cumsum())
+    last = volatile[-1]
+    tight = [last + (i % 2) * 0.01 for i in range(100)]
+    result = bollinger_squeeze(volatile + tight)
     assert result is True
 
 
@@ -156,7 +169,12 @@ def test_rsi_signal_too_few_bars():
 
 
 def test_rsi_signal_overbought_for_strong_uptrend():
-    closes = trending_up(100, step=2.0)
+    # Mostly up moves with tiny occasional pullbacks → RSI overbought
+    price = 100.0
+    closes = []
+    for i in range(100):
+        price += 1.5 if i % 10 != 0 else -0.1
+        closes.append(price)
     result = rsi_signal(closes)
     assert result["rsi_signal"] == "overbought"
 
