@@ -31,7 +31,7 @@ from fetchers.fred      import fetch_macro
 from fetchers.fmp       import fetch_all_equities
 from fetchers.sentiment import fetch_sentiment
 from analytics.filters  import screen_equity
-from llm.client         import generate_report
+from llm.client         import generate_report, SYSTEM_PROMPT
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -210,6 +210,28 @@ async def run():
     feed_path = OUTPUT_DIR / f"feed_{date_str}.json"
     feed_path.write_text(json.dumps(feed, indent=2, default=str), encoding="utf-8")
     print(f"[CIO] Feed saved → {feed_path}")
+
+    # ── Export-only mode ──────────────────────────────────────────────────────
+    if os.environ.get("EXPORT_ONLY", "").lower() in ("1", "true", "yes"):
+        pack_path = OUTPUT_DIR / f"prompt_pack_{date_str}.txt"
+        pack_path.write_text(
+            "=== HOW TO USE ===\n"
+            "1. Open Claude.ai and create (or open) a Project.\n"
+            "2. Paste the SYSTEM PROMPT block below into the project instructions.\n"
+            "3. Start a new conversation and paste the DATA FEED block as your message.\n\n"
+            + "=" * 60 + "\n"
+            "=== SYSTEM PROMPT (paste into Project Instructions) ===\n"
+            + "=" * 60 + "\n\n"
+            + SYSTEM_PROMPT + "\n\n"
+            + "=" * 60 + "\n"
+            "=== DATA FEED (paste as your message) ===\n"
+            + "=" * 60 + "\n\n"
+            + json.dumps(feed, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
+        print(f"[CIO] Export-only mode. Prompt pack saved → {pack_path}")
+        print("[CIO] Download the artifact, open prompt_pack_*.txt, and follow the instructions.")
+        return
 
     # ── Step 6: LLM inference ─────────────────────────────────────────────────
     print("[CIO] Sending to LLM (Anthropic Claude)...")
