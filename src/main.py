@@ -8,7 +8,7 @@ Sequence:
   3. Fetch equity data (FMP) for watchlist symbols
   4. Run math filters (Sortino, Squeeze, Graham, Momentum, EMA, RSI, R/R)
   5. Build DailyDataFeed JSON
-  6. Send to OpenAI → get CIO report
+  6. Send to Anthropic Claude → get CIO report
   7. Render HTML
   8. Write to output/ (GitHub Actions deploys to GitHub Pages)
   9. Send Discord notification
@@ -212,7 +212,7 @@ async def run():
     print(f"[CIO] Feed saved → {feed_path}")
 
     # ── Step 6: LLM inference ─────────────────────────────────────────────────
-    print("[CIO] Sending to LLM (OpenAI)...")
+    print("[CIO] Sending to LLM (Anthropic Claude)...")
     try:
         cio_report = await generate_report(feed)
         log["steps"]["llm"] = f"ok (${cio_report['_meta']['cost_usd_est']})"
