@@ -39,10 +39,12 @@ def test_sortino_returns_none_if_too_few_bars():
 
 
 def test_sortino_positive_for_rising_prices():
-    # Noisy uptrend — some returns dip below MAR, net positive → positive Sortino
-    rng = np.random.default_rng(42)
-    noise = rng.normal(0, 0.005, 252)
-    closes = list(np.cumsum(noise + 0.001) + 100)
+    # Deterministic: 4 up days (+0.3%) then 1 small dip (-0.1%) → clear positive Sortino
+    closes = []
+    price = 100.0
+    for i in range(252):
+        price *= 1.003 if i % 5 != 0 else 0.999
+        closes.append(price)
     result = sortino_ratio(closes)
     assert result is not None
     assert result > 0
@@ -85,11 +87,13 @@ def test_bollinger_squeeze_not_active_for_volatile_prices():
 
 
 def test_bollinger_squeeze_active_for_tight_range():
-    # High volatility followed by tight range → current BB width < 75% of historical avg
+    # 200 volatile bars then 20 tight bars: the 60-bar rolling avg at the last bar
+    # spans 40 volatile + 20 tight bars → avg dominated by wide volatile widths,
+    # while current bb_width (last 20 bars = tight) is tiny → squeeze detected
     rng = np.random.default_rng(42)
-    volatile = list(100 + rng.normal(0, 3, 100).cumsum())
+    volatile = list(100 + rng.normal(0, 3, 200).cumsum())
     last = volatile[-1]
-    tight = [last + (i % 2) * 0.01 for i in range(100)]
+    tight = [last + (i % 2) * 0.01 for i in range(20)]
     result = bollinger_squeeze(volatile + tight)
     assert result is True
 
