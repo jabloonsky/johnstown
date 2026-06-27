@@ -83,8 +83,8 @@ def deploy():
         files_to_upload.append((report, f"{REMOTE_DIR}/{report.name}"))
 
     if not files_to_upload:
-        print("No files to upload — output/ is empty.")
-        sys.exit(1)
+        print("No HTML reports to upload — skipping FTP deploy.")
+        sys.exit(0)
 
     print(f"\n[FTP] Connecting to {host}...")
     print(f"[FTP] Files to upload: {len(files_to_upload)}")

@@ -59,7 +59,7 @@ jobs:
           ls -la output/
 
       - name: Deploy to OVH via FTP
-        if: success() # Only run if the pipeline succeeded
+        if: success() && inputs.export_only != true
         env:
           OVH_FTP_HOST: ${{ secrets.OVH_FTP_HOST }}
           OVH_FTP_USER: ${{ secrets.OVH_FTP_USER }}
