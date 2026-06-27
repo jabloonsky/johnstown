@@ -190,6 +190,7 @@ async def run():
             "candidate":   sig.get("candidate", False),
             "score":       sig.get("overall_score", 0),
             "news":        eq.get("news", []),
+            "fetch_errors": {k: v for k, v in eq.items() if k.endswith("_error")},
         }
         equities_clean.append(entry)
 

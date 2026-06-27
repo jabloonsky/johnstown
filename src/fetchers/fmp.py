@@ -14,7 +14,12 @@ async def _get(client: httpx.AsyncClient, path: str, params: dict) -> dict | lis
     params["apikey"] = os.environ["FMP_API_KEY"]
     r = await client.get(f"{FMP_BASE}{path}", params=params)
     r.raise_for_status()
-    return r.json()
+    data = r.json()
+    # FMP returns 200 with {"Error Message": "..."} when the key is invalid or
+    # the endpoint requires a higher plan tier.
+    if isinstance(data, dict) and "Error Message" in data:
+        raise ValueError(data["Error Message"])
+    return data
 
 
 async def fetch_equity(symbol: str) -> dict:
@@ -27,24 +32,36 @@ async def fetch_equity(symbol: str) -> dict:
             quote = await _get(client, f"/quote/{symbol}", {})
             if quote:
                 q = quote[0]
-                result["px"]          = q.get("price")
+                result["px"]            = q.get("price")
                 result["px_chg_1d_pct"] = q.get("changesPercentage")
-                result["mkt_cap_b"]   = round(q.get("marketCap", 0) / 1e9, 2)
+                result["mkt_cap_b"]     = round(q.get("marketCap", 0) / 1e9, 2)
         except Exception as e:
             result["quote_error"] = str(e)
+            print(f"[FMP] {symbol} quote error: {e}")
 
         # --- TTM ratios (P/E, FCF yield, etc.) ---
         try:
             ratios = await _get(client, f"/ratios-ttm/{symbol}", {})
             if ratios:
                 r0 = ratios[0]
-                result["pe_ttm"]        = r0.get("peRatioTTM")
-                result["peg"]           = r0.get("pegRatioTTM")
-                result["fcf_yield_pct"] = round((r0.get("freeCashFlowYieldTTM") or 0) * 100, 2)
-                result["roe_pct"]       = round((r0.get("returnOnEquityTTM") or 0) * 100, 2)
-                result["debt_to_equity"]= r0.get("debtEquityRatioTTM")
+                result["pe_ttm"]         = r0.get("peRatioTTM")
+                result["peg"]            = r0.get("pegRatioTTM")
+                result["fcf_yield_pct"]  = round((r0.get("freeCashFlowYieldTTM") or 0) * 100, 2)
+                result["roe_pct"]        = round((r0.get("returnOnEquityTTM") or 0) * 100, 2)
+                result["debt_to_equity"] = r0.get("debtEquityRatioTTM")
+                result["eps"]            = r0.get("epsTTM")
         except Exception as e:
             result["ratios_error"] = str(e)
+            print(f"[FMP] {symbol} ratios error: {e}")
+
+        # --- Key metrics for Graham analysis (book value per share) ---
+        try:
+            metrics = await _get(client, f"/key-metrics-ttm/{symbol}", {})
+            if metrics:
+                result["book_value_per_share"] = metrics[0].get("bookValuePerShareTTM")
+        except Exception as e:
+            result["metrics_error"] = str(e)
+            print(f"[FMP] {symbol} key-metrics error: {e}")
 
         # --- 1 year of daily closes (for math filters) ---
         try:
@@ -56,6 +73,7 @@ async def fetch_equity(symbol: str) -> dict:
                 result["lows"]   = [d["low"]   for d in reversed(hist["historical"])]
         except Exception as e:
             result["history_error"] = str(e)
+            print(f"[FMP] {symbol} history error: {e}")
 
         # --- Latest news headlines ---
         try:
@@ -67,6 +85,7 @@ async def fetch_equity(symbol: str) -> dict:
             ]
         except Exception as e:
             result["news_error"] = str(e)
+            print(f"[FMP] {symbol} news error: {e}")
 
     return result
 
