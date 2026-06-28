@@ -4,18 +4,25 @@ Tries the new /stable/ endpoints first, falls back to legacy /api/v3/.
 Logs the real HTTP status code so failures are diagnosable.
 """
 import os
+import re
 import httpx
 
 STABLE = "https://financialmodelingprep.com/stable"
 LEGACY = "https://financialmodelingprep.com/api/v3"
 
 
+def _safe_url(url) -> str:
+    """Strip apikey from URL — used in logs and error messages."""
+    return re.sub(r"[?&]apikey=[^&]*", "", str(url)).rstrip("?&")
+
+
 async def _get(client, url, params):
     params["apikey"] = os.environ["FMP_API_KEY"]
     r = await client.get(url, params=params)
     if r.status_code != 200:
-        print(f"[FMP] {r.status_code} on {url} -> {r.text[:200]}")
-        r.raise_for_status()
+        safe = _safe_url(r.request.url)
+        print(f"[FMP] {r.status_code} on {safe} -> {r.text[:200]}")
+        raise ValueError(f"HTTP {r.status_code} on {safe}")
     return r.json()
 
 
@@ -54,6 +61,7 @@ async def fetch_equity(symbol: str) -> dict:
                 roe = r0.get("returnOnEquityTTM")
                 result["roe_pct"]       = round(roe * 100, 2) if roe else None
                 result["debt_to_equity"]= r0.get("debtToEquityRatioTTM") or r0.get("debtEquityRatioTTM")
+                result["pb_ratio"]      = r0.get("priceToBookRatioTTM") or r0.get("priceBookValueRatioTTM")
                 result["eps"]           = r0.get("epsTTM")
         except Exception as e:
             result["ratios_error"] = str(e)
@@ -69,6 +77,19 @@ async def fetch_equity(symbol: str) -> dict:
                 result["book_value_per_share"] = m0.get("bookValuePerShareTTM")
         except Exception as e:
             result["metrics_error"] = str(e)
+
+        # --- Derive Graham inputs when not returned directly by FMP free tier ---
+        # epsTTM is absent from ratios-ttm; derive from price / PE.
+        # BVPS: derive from price / P/B when key-metrics-ttm doesn't return it.
+        px = result.get("px") or 0
+        if not result.get("eps") and px > 0:
+            pe = result.get("pe_ttm") or 0
+            if pe > 0:
+                result["eps"] = round(px / pe, 4)
+        if not result.get("book_value_per_share") and px > 0:
+            pb = result.get("pb_ratio") or 0
+            if pb > 0:
+                result["book_value_per_share"] = round(px / pb, 4)
 
         # --- Price history (for math filters) ---
         try:
@@ -87,19 +108,6 @@ async def fetch_equity(symbol: str) -> dict:
                 result["lows"]   = [d["low"]   for d in rows]
         except Exception as e:
             result["history_error"] = str(e)
-
-        # --- News ---
-        try:
-            try:
-                news = await _get(client, f"{STABLE}/news/stock",
-                                  {"symbols": symbol, "limit": 5})
-            except Exception:
-                news = await _get(client, f"{LEGACY}/stock_news",
-                                  {"tickers": symbol, "limit": 5})
-            result["news"] = [{"t": n.get("title"), "ts": n.get("publishedDate")}
-                              for n in (news or [])][:5]
-        except Exception as e:
-            result["news_error"] = str(e)
 
     return result
 
