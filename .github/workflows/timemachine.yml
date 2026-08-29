@@ -1,0 +1,49 @@
+name: timemachine
+
+# Osobny workflow, zeby testy timemachine nie ciagnely zaleznosci pipeline'u CIO
+# (i odwrotnie). Rdzen timemachine dziala na golej bibliotece standardowej, wiec
+# ten job nie instaluje ani numpy, ani Pillow, ani insightface.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "timemachine/**"
+      - ".github/workflows/timemachine.yml"
+  pull_request:
+    paths:
+      - "timemachine/**"
+      - ".github/workflows/timemachine.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install (core only, no heavy extras)
+        working-directory: timemachine
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        working-directory: timemachine
+        run: pytest -v
+
+      - name: Verify the core imports without optional dependencies
+        working-directory: timemachine
+        run: |
+          python -c "import timemachine.identity, timemachine.ages, timemachine.scanner"
+          python -m timemachine --version

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "timemachine"
+version = "0.1.0"
+description = "Lokalne narzedzie do budowania osi czasu zdjec dziecka z wlasnego archiwum"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Rdzen dziala na samej bibliotece standardowej. Wszystko ciezkie jest opcjonalne
+# i ladowane leniwie -- patrz timemachine/caps.py oraz `timemachine doctor`.
+dependencies = []
+
+[project.optional-dependencies]
+# Dekodowanie JPG i skalowanie podgladow.
+images = ["pillow>=10.0"]
+# Rozpoznawanie twarzy (insightface buffalo_l na onnxruntime).
+faces = ["pillow>=10.0", "numpy>=1.24", "insightface>=0.7.3", "onnxruntime>=1.17"]
+# Podglady wbudowane w pliki RAW.
+raw = ["rawpy>=0.19"]
+dev = ["pytest>=7.0"]
+all = [
+    "pillow>=10.0",
+    "numpy>=1.24",
+    "insightface>=0.7.3",
+    "onnxruntime>=1.17",
+    "rawpy>=0.19",
+]
+
+[project.scripts]
+timemachine = "timemachine.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["timemachine*"]
+
+[tool.setuptools.package-data]
+timemachine = ["templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
